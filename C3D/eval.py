@@ -129,6 +129,11 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int):
             output = torch.nn.Softmax(dim=1)(output).cpu().numpy()
             results[frame_index - n:frame_index, i] = output
     # TODO: 整合results输出
+    with open('results.csv', 'w') as f:
+        for frame in results:
+            for target in frame:
+                f.write('{:.2f},{:.2f}, '.format(target[0], target[1]))
+            f.write('\n')
     return results
 
 def parse_args():
@@ -139,4 +144,4 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    eval_on_video(args.video, args.ckpt_root_path, 10, 30)
+    eval_on_video(args.video, args.ckpt_root_path, 15, 30)
