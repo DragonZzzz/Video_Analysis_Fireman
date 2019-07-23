@@ -130,9 +130,12 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int):
             results[frame_index - n:frame_index, i] = output
     # TODO: 整合results输出
     with open('results.csv', 'w') as f:
+        for m in models:
+            f.write('{}, '.format(m[0]))
+        f.write('\n')
         for frame in results:
             for target in frame:
-                f.write('{:.2f},{:.2f}, '.format(target[0], target[1]))
+                f.write('{:.4f}, '.format(target[1] / (target[0] + 1e-3)))
             f.write('\n')
     return results
 
