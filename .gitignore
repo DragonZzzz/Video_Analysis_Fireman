@@ -1,0 +1,6 @@
+.vscode
+ckpt
+__pycache__
+TestData
+*.csv
+*.mp4

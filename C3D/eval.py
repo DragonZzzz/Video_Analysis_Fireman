@@ -108,7 +108,7 @@ def transform_to_tensor(clip:list)->torch.Tensor:
     clip = clip.permute(0, 4, 1, 2, 3) # 修改成channel first的格式
     return clip
 
-def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int):
+def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold: float):
     for path in [video_path, ckpt_root_path]:
         assert path is not None and os.path.exists(path), '路径不存在：{}'.format(path)
     print('Loading models from ckpts.')
@@ -128,23 +128,50 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int):
                 output = model.forward(clip)
             output = torch.nn.Softmax(dim=1)(output).cpu().numpy()
             results[frame_index - n:frame_index, i] = output
-    # TODO: 整合results输出
-    with open('results.csv', 'w') as f:
-        for m in models:
-            f.write('{}, '.format(m[0]))
+    
+    # 保存结果
+    targets = [m[0] for m in models]
+    flags = [False] * len(targets) # 用来存储动作出现与否
+    count = [0] * len(targets)
+    output_file_name = os.path.basename(video_path).rsplit('.')[0] + '_output.csv'
+    with open(output_file_name, 'w') as f:
+        f.write(','.join(targets))
         f.write('\n')
         for frame in results:
-            for target in frame:
-                f.write('{:.4f}, '.format(target[1] / (target[0] + 1e-3)))
+            for i, p in enumerate(frame):
+                f.write('{:.4f}, '.format(p[1]))
+                if p[1] > threshold and not flags[i]:
+                    count[i] += 1 # 只在上升沿记录该动作
+                flags[i] = p[1] > threshold # 更新存储状态
             f.write('\n')
+        f.write('\n\n次数统计\n')
+        for i, name in enumerate(targets):
+            f.write('{}, {}\n'.format(name, count[i]))
+
+    # 结果写入视频
+    output_video_name = os.path.basename(video_path).rsplit('.')[0] + '_output.mp4'
+    fourcc = cv2.VideoWriter_fourcc(*'XVID')
+    video_wp = cv2.VideoWriter(output_video_name, fourcc, rate, (w, h))
+    for frame, index in extract_imgs_from_video(video_path, 1, 1):
+        frame = frame[0]
+        probs = results[index - 1, :, 1]
+        probs_sorted = sorted(zip(probs, targets), reverse=True)
+        for i, (p, name) in enumerate(probs_sorted):
+            if p > threshold:
+                cv2.putText(frame, '{}: {}'.format(name, p), (20, 40 * i + 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 1)
+        video_wp.write(frame)
+    video_wp.release()
+
+    print('results have been saved to: \n\t{}\n\t{}'.format(output_file_name, output_video_name))
     return results
 
 def parse_args():
     parser = argparse.ArgumentParser(usage='python3 eval.py -i path/to/video -r path/to/checkpoints')
     parser.add_argument('-i', '--video', help='path to video')
     parser.add_argument('-r', '--ckpt_root_path', help='path to the checkpoints')
+    parser.add_argument('-t', '--threshold', default=0.8, type=float)
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
-    eval_on_video(args.video, args.ckpt_root_path, 15, 30)
+    eval_on_video(args.video, args.ckpt_root_path, 15, 30, args.threshold)
