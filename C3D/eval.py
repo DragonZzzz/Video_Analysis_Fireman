@@ -133,6 +133,7 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
     targets = [m[0] for m in models]
     flags = [False] * len(targets) # 用来存储动作出现与否
     count = [0] * len(targets)
+    timeline = [[] for i in targets]
     output_file_name = os.path.basename(video_path).rsplit('.')[0] + '_output.csv'
     with open(output_file_name, 'w') as f:
         f.write(','.join(targets))
@@ -142,11 +143,17 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
                 f.write('{:.4f}, '.format(p[1]))
                 if p[1] > threshold and not flags[i]:
                     count[i] += 1 # 只在上升沿记录该动作
+                    timeline[i].append(str(int(i / rate)))
                 flags[i] = p[1] > threshold # 更新存储状态
             f.write('\n')
         f.write('\n\n次数统计\n')
         for i, name in enumerate(targets):
             f.write('{}, {}\n'.format(name, count[i]))
+            print('{}:\n\t出现{}次'.format(name, count[i]))
+            if count[i] > 0:
+                print('\t分别在第{}s'.format(', '.join(timeline[i])))
+            if name != 'objectfall' and count[i] > 0:
+                print('\t罚时：+{}s'.format(count[i] * 5))
 
     # 结果写入视频
     output_video_name = os.path.basename(video_path).rsplit('.')[0] + '_output.mp4'
