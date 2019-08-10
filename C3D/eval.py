@@ -146,9 +146,9 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
                     timeline[i].append(str(int(i / rate)))
                 flags[i] = p[1] > threshold # 更新存储状态
             f.write('\n')
-        f.write('\n\n次数统计\n')
+        f.write('\n\n次数统计\n类目,次数,惩时(s),出现时间\n')
         for i, name in enumerate(targets):
-            f.write('{}, {}\n'.format(name, count[i]))
+            f.write('{}, {}，{}, {}\n'.format(name, count[i], '-' if name is 'objectfall' else count[i] * 5, ' '.join(timeline[i])))
             print('{}:\n\t出现{}次'.format(name, count[i]))
             if count[i] > 0:
                 print('\t分别在第{}s'.format(', '.join(timeline[i])))
