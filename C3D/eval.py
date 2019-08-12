@@ -109,6 +109,20 @@ def transform_to_tensor(clip:list)->torch.Tensor:
     return clip
 
 def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold: float):
+    '''处理整段视频
+
+    Args:
+        video_path(str): 视频路径
+        ckpt_root_path(str): 检查点路径
+        step(int): 视频处理的步长
+        n(int): 每次用于输入网络的视频长度
+        threshold(float): 界定动作发生的概率阈值
+
+    Return:
+        restults(list): 逐帧的各个动作发生的概率
+        timeline(list): 每个动作发生的时间段
+        targets(list): 每个任务的名称
+    '''
     for path in [video_path, ckpt_root_path]:
         assert path is not None and os.path.exists(path), '路径不存在：{}'.format(path)
     print('Loading models from ckpts.')
@@ -132,28 +146,45 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
     # 保存结果
     targets = [m[0] for m in models]
     flags = [False] * len(targets) # 用来存储动作出现与否
-    count = [0] * len(targets)
+    count = [0] * len(targets) # 用来存储每个动作出现的次数
     timeline = [[] for i in targets]
-    output_file_name = os.path.basename(video_path).rsplit('.')[0] + '_output.csv'
+    # 用来存储动作出现的时间段，同一个动作在同一视频中有可能出现多次，shape = (target_count, times, 2)
+
+    # 获取输出文件名称
+    file_base_name = os.path.basename(video_path).rsplit('.')[0]
+    output_file_name = file_base_name + '_output.csv'
     with open(output_file_name, 'w') as f:
         f.write(','.join(targets))
         f.write('\n')
-        for frame in results:
-            for i, p in enumerate(frame):
+        for frame_index, frame in enumerate(results):
+            # frame是shape = (target_count, 1)的数组，存储了每一帧对应的n个动作发生的概率
+            for target_index, p in enumerate(frame):
                 f.write('{:.4f}, '.format(p[1]))
                 if p[1] > threshold and not flags[i]:
-                    count[i] += 1 # 只在上升沿记录该动作
-                    timeline[i].append(str(int(i / rate)))
-                flags[i] = p[1] > threshold # 更新存储状态
+                    count[target_index] += 1 # 上升沿记录该动作发生一次，并记录动作开始的帧索引
+                    timeline[target_index].append({
+                        'start_frame': frame_index,
+                        'end_frame': -1
+                    })
+                if p[1] <= threshold and flags[target_index] and len(timeline[target_index]) > 0:
+                    # 在下降沿记录动作的结束帧索引
+                    if timeline[target_index][-1]['end_frame'] < 0:
+                        timeline[target_index][-1]['end_frame'] = frame_index
+                flags[target_index] = p[1] > threshold # 更新存储状态
             f.write('\n')
-        f.write('\n\n次数统计\n类目,次数,惩时(s),出现时间\n')
+
+    summary_file_name = file_base_name + '_summary.csv'
+    with open(summary_file_name, 'w') as f:
+        f.write('次数统计\n类目,次数,惩时(s),出现时间\n')
         for i, name in enumerate(targets):
-            f.write('{}, {}，{}, {}\n'.format(name, count[i], '-' if name is 'objectfall' else count[i] * 5, ' '.join(timeline[i])))
+            time_penalty = '-' if name is 'objectfall' else str(count[i] * 5)
+            time_line_str = ', '.join(['({} ~ {})'.format(seg['start_frame'], seg['end_frame']) for seg in timeline[i]])
+            f.write('{}, {}, {}, {}\n'.format(name, count[i], time_penalty, time_line_str))
             print('{}:\n\t出现{}次'.format(name, count[i]))
             if count[i] > 0:
-                print('\t分别在第{}s'.format(', '.join(timeline[i])))
+                print('\t出现帧数段: ' + time_line_str)
             if name != 'objectfall' and count[i] > 0:
-                print('\t罚时：+{}s'.format(count[i] * 5))
+                print('\t罚时: {}s'.format(time_penalty))
 
     # 结果写入视频
     output_video_name = os.path.basename(video_path).rsplit('.')[0] + '_output.mp4'
@@ -169,16 +200,43 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
         video_wp.write(frame)
     video_wp.release()
 
-    print('results have been saved to: \n\t{}\n\t{}'.format(output_file_name, output_video_name))
-    return results
+    print('results have been saved to: \n\t{}\n\t{}\n\t{}'.format(output_file_name, output_video_name, summary_file_name))
+    return results.tolist(), timeline, targets
+
+def run_as_service():
+    from flask import Flask, request, jsonify
+    app = Flask(__name__)
+
+    @app.route('/detect', methods=['POST', 'GET'])
+    def __handle_post():
+        print(request.form)
+        video_path = request.form['video']
+        ckpt_path = request.form['ckpt']
+        threshold = float(request.form['threshold'])
+        step = int(request.form['step'])
+        length = int(request.form['length'])
+        results, timeline, targets = eval_on_video(video_path, ckpt_path, step, length, threshold)
+        ret = {
+            'raw_data': results,
+            'timeline': {key: timeline[i] for i, key in enumerate(targets)}
+        }
+        return jsonify(ret)
+    
+    app.run(debug=True, host='127.0.0.1', port=5000)
 
 def parse_args():
     parser = argparse.ArgumentParser(usage='python3 eval.py -i path/to/video -r path/to/checkpoints')
     parser.add_argument('-i', '--video', help='path to video')
     parser.add_argument('-r', '--ckpt_root_path', help='path to the checkpoints')
     parser.add_argument('-t', '--threshold', default=0.8, type=float)
+    parser.add_argument('-web', default=0, type=int)
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
-    eval_on_video(args.video, args.ckpt_root_path, 15, 30, args.threshold)
+    step = 15
+    length = 30
+    if args.web > 0:
+        run_as_service()
+    else:
+        eval_on_video(args.video, args.ckpt_root_path, 15, 30, args.threshold)

@@ -69,4 +69,27 @@ python eval.py -i [要测试的视频路径] -r [存放检查点的路径]
 ```
 则应该使用命令：`python ./C3D/eval.py -i ./TestData/True-all-right.MOV -r ./C3D/ckpt`。
 
+### 使用`http`接口访问
+使用如下命令：
+```bash
+python ./C3D/eval.py -web 1
+```
+可以将其部署为一个web服务，从而方便前端进行数据交互展示。
 
+下面给出了一个`python`示例：
+```python
+import requests
+
+data = {
+  "video": "/home/xxx/TestData/False2-fall.mp4",
+  "ckpt": "/home/xxx/C3D/ckpt",
+  "threshold": 0.8,
+  "step": 30,
+  "length": 15
+}
+
+res = requests.post('http://127.0.0.1:5000/detect', data=data)
+print(res.text)
+```
+注意，`http`请求必须为`POST`类型，而且请求字段缺一不可，在实际使用时，请求中的路径参数建议转换为绝对路径后再传入。
+服务的地址和端口可以在`eval.py`文件的`run_as_sevice`函数中修改。
