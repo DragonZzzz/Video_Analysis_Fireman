@@ -23,12 +23,15 @@ def setup(ckpt_path:str)->nn.Module:
     '''
     model = C3D_model.C3D(num_classes=2)
     use_cuda = torch.cuda.is_available()
-    device = torch.device('cuda:0' if use_cuda else 'cpu')
+    device_name = 'cuda:0' if use_cuda else 'cpu'
+    device = torch.device(device_name)
+
+    params = {} if use_cuda else {'map_location': 'cpu'}
 
     # 恢复检查点
     if ckpt_path is not None:
         assert os.path.exists(ckpt_path), '无效的路径{}'.format(ckpt_path)
-        ckpt = torch.load(ckpt_path)
+        ckpt = torch.load(ckpt_path, **params)
         model.load_state_dict(ckpt['state_dict'])
     model.to(device)
     model.eval()
@@ -48,10 +51,15 @@ def load_model_from_ckpts(ckpt_root_path:str)->list:
     models = []
     for ckpt_name in tqdm(ckpt_filenames, desc='Loading'):
         ckpt_full_path = os.path.join(ckpt_root_path, ckpt_name)
-        model_target_name = get_target_name_from(ckpt_name)
-        model, device = setup(ckpt_full_path)
-        models.append((model_target_name, model, device))
+        models.append(load_model_from_ckpt(ckpt_full_path))
     return models
+
+def load_model_from_ckpt(ckpt_path:str)->tuple:
+    '''从指定文件中恢复模型'''
+    ckpt_filename = os.path.basename(ckpt_path)
+    model_target = get_target_name_from(ckpt_filename)
+    model, device = setup(ckpt_path)
+    return (model_target, model, device)
 
 def extract_imgs_from_video(video_path:str, step:int = 1, n:int = 30)->deque:
     '''从视频中提取图像
@@ -125,18 +133,23 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
     '''
     for path in [video_path, ckpt_root_path]:
         assert path is not None and os.path.exists(path), '路径不存在：{}'.format(path)
-    print('Loading models from ckpts.')
-    models = load_model_from_ckpts(ckpt_root_path)
-    print('{} models are loaded: {}'.format(len(models), [x[0] for x in models]))
+
+    model_ckpts = os.listdir(ckpt_root_path)
     w, h, rate, total = get_video_info(video_path)
     print('Video info:\n\tsize: {} * {}\n\trate: {}\n\ttotal: {}'.format(w, h, rate, total))
 
-    results = np.zeros((total, len(models), 2)) # shape = (总帧数 * 总类数 * 2)
+    results = np.zeros((total, len(model_ckpts), 2)) # shape = (总帧数 * 总类数 * 2)
 
-    for clip, frame_index in tqdm(extract_imgs_from_video(video_path, step, n),
-            total=((total - n) // step + 2), desc='Inferencing'):
-        clip = transform_to_tensor(clip)
-        for i, (_, model, device) in enumerate(models):
+    # 依次加载各个模型
+    targets = []
+    for i, model_file_name in enumerate(model_ckpts):
+        model_full_name = os.path.join(ckpt_root_path, model_file_name)
+        target_name, model, device = load_model_from_ckpt(model_full_name)
+        targets.append(target_name)
+        # 开始处理单个视频
+        for clip, frame_index in tqdm(extract_imgs_from_video(video_path, step, n),
+                total=((total - n) // step + 2), desc='Inferencing {}'.format(target_name)):
+            clip = transform_to_tensor(clip)
             clip = torch.autograd.Variable(clip, requires_grad=False).to(device)
             with torch.no_grad():
                 output = model.forward(clip)
@@ -144,7 +157,6 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
             results[frame_index - n:frame_index, i] = output
     
     # 保存结果
-    targets = [m[0] for m in models]
     flags = [False] * len(targets) # 用来存储动作出现与否
     count = [0] * len(targets) # 用来存储每个动作出现的次数
     timeline = [[] for i in targets]
