@@ -150,11 +150,19 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
     timeline = [[] for i in targets]
     # 用来存储动作出现的时间段，同一个动作在同一视频中有可能出现多次，shape = (target_count, times, 2)
 
+    trans_zh = {
+        'acrossLadder': '跨节',
+        'firststep': '首步掉落',
+        'objectfall': '物体掉落',
+        'sameLadder': '同节',
+        'sendHose': '水带压线'
+    }
+
     # 获取输出文件名称
     file_base_name = os.path.basename(video_path).rsplit('.')[0]
     output_file_name = file_base_name + '_output.csv'
     with open(output_file_name, 'w') as f:
-        f.write(','.join(targets))
+        f.write(','.join([trans_zh[name] for name in targets]))
         f.write('\n')
         for frame_index, frame in enumerate(results):
             # frame是shape = (target_count, 1)的数组，存储了每一帧对应的n个动作发生的概率
@@ -173,15 +181,17 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
                 flags[target_index] = p[1] > threshold # 更新存储状态
             f.write('\n')
 
+    should_show_time = False # 不输出帧数时间段
+
     summary_file_name = file_base_name + '_summary.csv'
     with open(summary_file_name, 'w') as f:
-        f.write('次数统计\n类目,次数,惩时(s),出现时间\n')
+        f.write('次数统计\n类目,次数,惩时(s),{}\n'.format('出现时间段' if should_show_time else ''))
         for i, name in enumerate(targets):
             time_penalty = '-' if name is 'objectfall' else str(count[i] * 5)
             time_line_str = ', '.join(['({} ~ {})'.format(seg['start_frame'], seg['end_frame']) for seg in timeline[i]])
-            f.write('{}, {}, {}, {}\n'.format(name, count[i], time_penalty, time_line_str))
-            print('{}:\n\t出现{}次'.format(name, count[i]))
-            if count[i] > 0:
+            f.write('{}, {}, {}, {}\n'.format(trans_zh[name], count[i], time_penalty, time_line_str if should_show_time else ''))
+            print('{}:\n\t出现{}次'.format(trans_zh[name], count[i]))
+            if count[i] > 0 and should_show_time:
                 print('\t出现帧数段: ' + time_line_str)
             if name != 'objectfall' and count[i] > 0:
                 print('\t罚时: {}s'.format(time_penalty))
@@ -196,7 +206,7 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
         probs_sorted = sorted(zip(probs, targets), reverse=True)
         for i, (p, name) in enumerate(probs_sorted):
             if p > threshold:
-                cv2.putText(frame, '{}: {}'.format(name, p), (20, 40 * i + 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 1)
+                cv2.putText(frame, '{}: {}'.format(trans_zh[name], p), (20, 40 * i + 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 1)
         video_wp.write(frame)
     video_wp.release()
 
