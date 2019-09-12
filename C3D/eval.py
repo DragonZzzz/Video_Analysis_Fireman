@@ -14,7 +14,7 @@ from network import C3D_model
 
 def setup(ckpt_path:str)->nn.Module:
     '''配置模型的GPU/CPU环境
-    
+
     Args:
         ckpt_path(str): 模型检查点路径
     Return:
@@ -63,7 +63,7 @@ def load_model_from_ckpt(ckpt_path:str)->tuple:
 
 def extract_imgs_from_video(video_path:str, step:int = 1, n:int = 30)->deque:
     '''从视频中提取图像
-    
+
     Args:
         video_path(str): 视频路径
         step(int): 视频中提取图像的步长
@@ -155,7 +155,7 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
                 output = model.forward(clip)
             output = torch.nn.Softmax(dim=1)(output).cpu().numpy()
             results[frame_index - n:frame_index, i] = output
-    
+
     # 保存结果
     flags = [False] * len(targets) # 用来存储动作出现与否
     count = [0] * len(targets) # 用来存储每个动作出现的次数
@@ -180,7 +180,7 @@ def eval_on_video(video_path:str, ckpt_root_path:str, step:int, n:int, threshold
             # frame是shape = (target_count, 1)的数组，存储了每一帧对应的n个动作发生的概率
             for target_index, p in enumerate(frame):
                 f.write('{:.4f}, '.format(p[1]))
-                if p[1] > threshold and not flags[i]:
+                if p[1] > threshold and not flags[target_index]:
                     count[target_index] += 1 # 上升沿记录该动作发生一次，并记录动作开始的帧索引
                     timeline[target_index].append({
                         'start_frame': frame_index,
@@ -243,7 +243,7 @@ def run_as_service():
             'timeline': {key: timeline[i] for i, key in enumerate(targets)}
         }
         return jsonify(ret)
-    
+
     app.run(debug=True, host='127.0.0.1', port=5000)
 
 def parse_args():
